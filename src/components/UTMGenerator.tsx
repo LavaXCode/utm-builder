@@ -45,7 +45,10 @@ const UTMGenerator: React.FC = () => {
   const [showHistory, setShowHistory] = useState<boolean>(false);
   const [errors, setErrors] = useState<Partial<UTMParams>>({});
   const [showSettings, setShowSettings] = useState<boolean>(false);
-  const [rebrandlyConfig, setRebrandlyConfig] = useState<RebrandlyConfig>({ apiKey: '34801613f67c4a4ebb5b63ac2344db7a', domain: 'https://utm.jaskey.in' });
+  const [rebrandlyConfig, setRebrandlyConfig] = useState<RebrandlyConfig>({ 
+    apiKey: '', 
+    domain: '' 
+  });
   const [isCreatingShortLink, setIsCreatingShortLink] = useState<boolean>(false);
   const [shortLinkError, setShortLinkError] = useState<string>('');
 
@@ -103,12 +106,17 @@ const UTMGenerator: React.FC = () => {
     try {
       const requestBody: any = {
         destination: longUrl,
-        title: `UTM Link - ${params.campaign}`
+        title: `UTM Link - ${params.campaign || 'Campaign'}`
       };
 
-      if (rebrandlyConfig.domain) {
-        requestBody.domain = { fullName: rebrandlyConfig.domain };
+      // Only add domain if it's provided and not empty
+      if (rebrandlyConfig.domain && rebrandlyConfig.domain.trim()) {
+        // Remove protocol if present and use just the domain name
+        const cleanDomain = rebrandlyConfig.domain.replace(/^https?:\/\//, '').trim();
+        requestBody.domain = { fullName: cleanDomain };
       }
+
+      console.log('Rebrandly request:', requestBody);
 
       const response = await fetch('https://api.rebrandly.com/v1/links', {
         method: 'POST',
@@ -121,12 +129,15 @@ const UTMGenerator: React.FC = () => {
 
       if (!response.ok) {
         const errorData = await response.json();
+        console.error('Rebrandly error response:', errorData);
         throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
       }
 
       const data = await response.json();
+      console.log('Rebrandly success response:', data);
+      
       return {
-        shortUrl: data.shortUrl,
+        shortUrl: data.shortUrl || `https://${data.domainName}/${data.slashtag}`,
         id: data.id
       };
     } catch (error) {
@@ -276,6 +287,35 @@ const UTMGenerator: React.FC = () => {
     setShowSettings(false);
   };
 
+  const testApiConnection = async (): Promise<void> => {
+    if (!rebrandlyConfig.apiKey) {
+      setShortLinkError('API key is required');
+      return;
+    }
+
+    setIsCreatingShortLink(true);
+    setShortLinkError('');
+
+    try {
+      const response = await fetch('https://api.rebrandly.com/v1/account', {
+        headers: {
+          'apikey': rebrandlyConfig.apiKey
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`API test failed: ${response.status}`);
+      }
+
+      const data = await response.json();
+      setShortLinkError(`✅ API connection successful! Account: ${data.email}`);
+    } catch (error) {
+      setShortLinkError(`❌ API test failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsCreatingShortLink(false);
+    }
+  };
+
   useEffect(() => {
     const saved = localStorage.getItem('utm-history');
     if (saved) {
@@ -356,15 +396,29 @@ const UTMGenerator: React.FC = () => {
                   </label>
                   <input
                     type="text"
-                    value={rebrandlyConfig.domain}
+                    value={rebrandlyConfig.domain || ''}
                     onChange={(e) => setRebrandlyConfig(prev => ({ ...prev, domain: e.target.value }))}
-                    placeholder="yourdomain.com"
+                    placeholder="utm.jaskey.in"
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Leave empty to use rebrand.ly domain
+                    Enter just the domain name (e.g., utm.jaskey.in). Leave empty to use rebrand.ly
                   </p>
                 </div>
+
+                <button
+                  onClick={testApiConnection}
+                  disabled={isCreatingShortLink || !rebrandlyConfig.apiKey}
+                  className="w-full px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {isCreatingShortLink ? 'Testing...' : 'Test API Connection'}
+                </button>
+
+                {shortLinkError && (
+                  <div className="p-3 rounded-lg bg-gray-50 text-sm">
+                    {shortLinkError}
+                  </div>
+                )}
               </div>
 
               <div className="flex gap-3 mt-8">
